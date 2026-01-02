@@ -61,7 +61,7 @@ Calculates the vehicle's position using a kinematic bicycle model.
     * `x`: steering angle (degrees)
 * **Publishes:** `/odom` (`nav_msgs/Odometry`)
 * **Parameters:**
-    * [cite_start]`steer`: Steering ratio factor (Default: ~32.0) [cite: 39]
+    * `steer`: Steering ratio factor (Default: ~32.0)
     * `steering_bias`: Offset to correct steering drift.
     * `initial_theta`: Initial heading of the car on the track.
 
@@ -80,7 +80,7 @@ Detects sector crossings using geometric intersection algorithms.
 * **Custom Message Structure (`sector_times.msg`):**
     * `int32 current_sector`: ID of the entered sector (1, 2, or 3).
     * `float32 current_sector_time`: Duration spent in the previous sector.
-    * [cite_start]`float32 current_sector_mean_speed`: Average speed in the previous sector. [cite: 118-120]
+    * `float32 current_sector_mean_speed`: Average speed in the previous sector.
 
 ## Visual Results
 The launch file opens RViz. You should see two paths tracing the Monza circuit:
