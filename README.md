@@ -1,108 +1,93 @@
-# ROS Vehicle Odometry and Sector Timing
-
-This project consists of three ROS nodes for processing vehicle odometry, GPS data, and computing sector times on a predefined track using onboard sensors.
-
-## Table of Contents
-
-- [Overview](#overview)
-- [Nodes](#nodes)
-  - [1. `odometer`](#1-odometer)
-  - [2. `gps_odometer`](#2-gps_odometer)
-  - [3. `sector_times`](#3-sector_times)
-- [Topics](#topics)
-- [Custom Messages](#custom-messages)
-
----
+# Vehicle Odometry ROS demo (Monza Circuit)
 
 ## Overview
+This project is a **ROS (Robot Operating System)** demo developed for Vehicle Odometry and Sector-Timing use cases. It implements odometry estimation and race sector analysis for an autonomous vehicle driving on the Monza circuit.
 
-This ROS package provides:
+The system processes raw sensor data (GPS and vehicle telemetry) to:
+1.  Compute Dead Reckoning odometry using the Ackermann steering model.
+2.  Compute Absolute odometry by converting GPS coordinates to a local Cartesian ENU frame.
+3.  Calculate lap sector times and mean speeds by detecting when the vehicle crosses specific geofenced lines on the track.
 
-- Vehicle odometry estimation from speed and steering angle (`odometer` node).
-- Odometry estimation from GPS data using ENU transformation (`gps_odometer` node).
-- Sector timing logic for a closed-loop track with defined GPS boundaries (`sector_times` node).
+## Project Structure
+The package contains three main nodes managed by a single launch file:
 
----
+* **`odometer`**: Estimates pose x, y, theta using wheel speed and steering angle (Ackermann bicycle model).
+* **`gps_odometer`**: Converts Latitude/Longitude/Altitude to a local metric frame (ENU) relative to a reference point.
+* **`sector_times`**: Monitors vehicle position to detect sector transitions and publishes timing/speed stats.
 
-## Nodes
+## Dependencies
+* **ROS** (Tested on Noetic/Melodic)
+* **C++ 11/14**
+* **Standard ROS msgs**: `geometry_msgs`, `nav_msgs`, `sensor_msgs`, `tf`
 
-### 1. `odometer`
+## Installation
 
-Subscribes to vehicle speed and steering angle to compute dead-reckoning odometry using the Ackermann model.
+1.  **Clone the repository** into your catkin workspace `src` folder:
+    ```bash
+    cd ~/catkin_ws/src
+    git clone https://github.com/cienzman/vehicle-odometry-ROS-demo.git
+    ```
 
-**Subscribed topics:**
+2.  **Build the package**:
+    ```bash
+    cd ~/catkin_ws
+    catkin_make
+    source devel/setup.bash
+    ```
 
-- `/speedsteer` (`geometry_msgs/PointStamped`)  
-  - `x`: steering angle in degrees  
-  - `y`: speed in km/h
+## Usage
 
-**Published topics:**
+### 1. Play the Data
+You need the provided ROS bag file containing the vehicle data. Run it in a separate terminal with the `--clock` flag:
+    ```rosbag play --clock project.bag
+    ```
 
-- `/odom` (`nav_msgs/Odometry`) – Odometry in the `odom` frame  
-- TF transform: `odom → vehicle`
+### 2. Launch the Project
+The entire system (nodes + RViz visualization) is started via a single launch file:
+    ```roslaunch first_project launch.launch```
 
----
+This command will:
+* Start the `odometer` node.
+* Start the `gps_odometer` node.
+* Start the `sector_times` node.
+* Open **RViz** with the pre-configured `config.rviz` to visualize the paths (Blue = Dead Reckoning, Red = GPS).
 
-### 2. `gps_odometer`
+## Nodes & Parameters
 
-Processes raw GPS data to compute position in the ENU (East-North-Up) frame relative to a reference point and publishes it as odometry.
+### 1. Odometer Node (`odometer.cpp`)
+Calculates the vehicle's position using a kinematic bicycle model.
+* **Subscribes to:** `/speedsteer` (`geometry_msgs/PointStamped`)
+    * `y`: speed (km/h)
+    * `x`: steering angle (degrees)
+* **Publishes:** `/odom` (`nav_msgs/Odometry`)
+* **Parameters:**
+    * [cite_start]`steer`: Steering ratio factor (Default: ~32.0) [cite: 39]
+    * `steering_bias`: Offset to correct steering drift.
+    * `initial_theta`: Initial heading of the car on the track.
 
-**Subscribed topics:**
+### 2. GPS Odometer Node (`gps_odometer.cpp`)
+Converts WGS84 coordinates to Cartesian ECEF and then to a local ENU (East-North-Up) frame.
+* **Subscribes to:** `/swiftnav/front/gps_pose` (`sensor_msgs/NavSatFix`)
+* **Publishes:** `/gps_odom` (`nav_msgs/Odometry`)
+* **Parameters (Reference Point):**
+    * `lat_r`, `lon_r`, `alt_r`: Coordinates of the map origin.
+    * *Note: If parameters are not provided, the node uses the first valid GPS reading as the origin.*
 
-- `/swiftnav/front/gps_pose` (`sensor_msgs/NavSatFix`)
+### 3. Sector Times Node (`sector_times.cpp`)
+Detects sector crossings using geometric intersection algorithms.
+* **Subscribes to:** `/speedsteer` and `/swiftnav/front/gps_pose`
+* **Publishes:** `/sector_times` (Custom Message)
+* **Custom Message Structure (`sector_times.msg`):**
+    * `int32 current_sector`: ID of the entered sector (1, 2, or 3).
+    * `float32 current_sector_time`: Duration spent in the previous sector.
+    * [cite_start]`float32 current_sector_mean_speed`: Average speed in the previous sector. [cite: 118-120]
 
-**Published topics:**
+## Visual Results
+The launch file opens RViz. You should see two paths tracing the Monza circuit:
+* **Blue Path (Odom):** The path estimated purely by wheel encoders and steering. It may drift over time.
+* **Red Path (GPS):** The absolute position of the vehicle.
 
-- `/gps_odom` (`nav_msgs/Odometry`) – Odometry based on GPS in the `odom` frame  
-- TF transform: `odom → gps`
 
-> If no GPS reference is given via parameters, it uses the first valid GPS message.
 
----
 
-### 3. `sector_times`
-
-Tracks progress through a set of predefined GPS-based sector boundaries and publishes sector timing and average speed.
-
-**Subscribed topics:**
-
-- `/speedsteer` (`geometry_msgs/PointStamped`)
-- `/swiftnav/front/gps_pose` (`sensor_msgs/NavSatFix`)
-
-**Published topics:**
-
-- `/sector_times` (`first_project/sector_times`)
-
-**Sector definitions:**
-
-Three sectors are defined by line segments between GPS coordinates:
-
-- **1 → 2:** `(45.630247, 9.289481)` to `(45.629969, 9.289499)`
-- **2 → 3:** `(45.623658, 9.287174)` to `(45.623476, 9.287370)`
-- **3 → 1:** `(45.616058, 9.280528)` to `(45.616018, 9.281218)`
-
-> Crossing a segment from the correct direction triggers a sector transition.
-
----
-
-## Topics
-
-| Topic                       | Message Type                 | Published By     |
-|----------------------------|------------------------------|------------------|
-| `/speedsteer`              | `geometry_msgs/PointStamped` | External         |
-| `/odom`                    | `nav_msgs/Odometry`          | `odometer`       |
-| `/gps_odom`                | `nav_msgs/Odometry`          | `gps_odometer`   |
-| `/sector_times`            | `first_project/sector_times` | `sector_times`   |
-| `/swiftnav/front/gps_pose` | `sensor_msgs/NavSatFix`      | GPS Source       |
-
----
-
-## Custom Messages
-
-### `first_project/sector_times.msg`
-
-```text
-int32 current_sector
-float64 current_sector_time
-float32 current_sector_mean_speed
 
